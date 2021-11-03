@@ -1,5 +1,7 @@
 const { Message } = require("../models/Message");
 const { Room } = require("../models/Room");
+const aes256 = require("aes256");
+const { env } = require("../config/env");
 
 module.exports = (io, socket, extra = {}) => {
   const { onlineUsers } = extra;
@@ -7,14 +9,14 @@ module.exports = (io, socket, extra = {}) => {
   const createChatRoom = async (payload) => {
     const { content, ownerId, userId } = payload;
 
-    // Perist the room
+    // Persist the room
     const room = await Room.create({ ownerId: ownerId, userId: userId });
-    
+
     // Add a message in the created room
     const message = await Message.create({
       roomId: room.id,
       senderId: ownerId,
-      content,
+      content: aes256.encrypt(env.MESSAGE_ENCRYPTION_KEY, content),
     });
 
     // Add the current socket in the created room

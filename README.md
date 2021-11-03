@@ -8,8 +8,8 @@
 
 ## V1.1
 1. Redis Cache + Broadcasting
-2. Show timestamps
-5. Encryption
+2. [x] Show timestamps
+5. [x] Encryption
 
 ### How to run this app
 ```js

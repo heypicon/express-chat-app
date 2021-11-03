@@ -1,12 +1,22 @@
 const { Message } = require("../models/Message");
 const { Room } = require("../models/Room");
+const { env } = require("../config/env");
+const aes256 = require("aes256");
 
 module.exports = (io, socket, { onlineUsers }) => {
   const pushMessageToRoom = async (payload) => {
-    const { roomId, content, senderId } = payload;
+    const { roomId, content, url, contentType, senderId } = payload;
 
     // Add message in the given room
-    const message = await Message.create({ roomId, senderId, content });
+    const message = await Message.create({
+      roomId,
+      senderId,
+      content: content
+        ? aes256.encrypt(env.MESSAGE_ENCRYPTION_KEY, content)
+        : "",
+      contentType,
+      url: url || "",
+    });
 
     // Emit the message to all clients in the given room
     io.sockets.to(roomId).emit("add-message", message);

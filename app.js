@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const express = require("express");
 const { Op } = require("sequelize");
 const cors = require("cors");
@@ -54,7 +56,7 @@ app.get("/rooms", async (req, res) => {
 
 const allowedOrigins = "*"
 
-sequelize.sync({ alter: false }).then(() => {
+sequelize.sync({ alter: true }).then(() => {
   const httpServer = createServer(app);
   const io = new Server(httpServer, { cors: allowedOrigins });
 

@@ -7,7 +7,7 @@ module.exports = (io, socket, extra = {}) => {
   const createChatRoom = async (payload) => {
     const { content, ownerId, userId } = payload;
 
-    // Perist the room
+    // Persist the room
     const room = await Room.create({ ownerId: ownerId, userId: userId });
     
     // Add a message in the created room

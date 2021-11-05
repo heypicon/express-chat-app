@@ -1,116 +1,67 @@
 require("dotenv").config();
-
 const express = require("express");
-const { Op } = require("sequelize");
 const cors = require("cors");
 const { createServer } = require("http");
 const { Server } = require("socket.io");
-const { Message } = require("./models/Message");
+const { connect } = require("mongoose");
 const { Room } = require("./models/Room");
-const { User } = require("./models/User");
-const { sequelize } = require("./utils/db");
-const registerRoomHandlers = require("./handlers/rooms");
-const registerMessagesHandlers = require("./handlers/messages");
-const app = express();
+const { env } = require("./config/env");
+const roomsHandler = require("./controllers/rooms");
+const messagesHandler = require("./controllers/rooms");
 
-// Global Middlewares
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const { MONGO_HOST, MONGO_PORT, MONGO_DATABASE } = env;
 
-// Model Associations
-User.hasMany(Room, { foreignKey: "ownerId" });
-Room.belongsTo(User, { foreignKey: "ownerId" });
+connect(`mongodb://${MONGO_HOST}:${MONGO_PORT}/${MONGO_DATABASE}`)
+  .then(() => {
+    const app = express();
 
-Room.hasMany(Message, { foreignKey: "roomId" });
-Message.belongsTo(Room, { foreignKey: "roomId" });
+    app.use(cors());
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
 
-User.hasMany(Message, { foreignKey: "senderId" });
-Message.belongsTo(User, { foreignKey: "senderId" });
-
-app.post("/signup", async (req, res) => {
-  const user = await User.create(req.body);
-  res.status(201).json({ data: { user } });
-});
-
-app.post("/login", async (req, res) => {
-  const user = await User.findOne({ where: { ...req.body } });
-  res.status(200).json({ data: { user } });
-});
-
-app.get("/rooms", async (req, res) => {
-  const rooms = await Room.findAll({
-    where: {
-      [Op.or]: [{ ownerId: req.query.ownerId }, { userId: req.query.ownerId }],
-    },
-    include: {
-      model: Message,
-      // Works fine! but very bad approach!!!
-      // TODO: Refactor
-      limit: 1,
-      order: [["createdAt", "DESC"]],
-    },
-  });
-  res.status(200).json({ data: { rooms } });
-});
-
-const allowedOrigins = "*"
-
-sequelize.sync({ alter: true }).then(() => {
-  const httpServer = createServer(app);
-  const io = new Server(httpServer, { cors: allowedOrigins });
-
-
-  // TODO: Move to redis
-  const onlineUserIds = new Set();
-  const onlineUsers = {};
-
-  const createUser = (socket) => {
-    const id = socket.handshake.query.id;
-    const user = { id, name: socket.handshake.query.name, socketId: socket.id };
-    onlineUsers[id] = user;
-    return user;
-  };
-
-  const onConnection = (socket) => {
-    // Store incoming users in a set.
-    onlineUserIds.add(socket.handshake.query.id);
-
-    // Update in-memory users list
-    createUser(socket);
-
-    // Emit connected clients count
-    io.emit("total-online-users", onlineUserIds.size);
-    
-    // Emit list of connected clients
-    io.emit("online-users", Object.values(onlineUsers));
-
-    // Register handlers here
-    registerRoomHandlers(io, socket, { onlineUsers });
-    registerMessagesHandlers(io, socket, { onlineUsers });
-
-    // Handle disconnection
-    socket.on("disconnect", (reason) => {
-      const user = Object.values(onlineUsers).find(
-        (u) => u.socketId === socket.id
-      );
-
-      // Delete disconnected user! 
-      // But we should change the status e.g. 1/2 for online/offline.
-      delete onlineUsers[user.id];
-      onlineUserIds.delete(user.id);
-
-      // Emit connected clients count
-      io.emit("total-online-users", onlineUserIds.size);
-
-      // Emit list of connected clients
-      io.emit("online-users", Object.values(onlineUsers));
+    app.get("/rooms/:userId", async (req, res) => {
+      const rooms = await Room.find({
+        $or: [
+          { senderId: req.params.userId },
+          { receiverId: req.params.userId },
+        ],
+      });
+      res.status(200).json({ rooms });
     });
-  };
 
-  io.on("connection", onConnection);
+    const httpServer = createServer(app);
+    const io = new Server(httpServer, { cors: env.ALLOWED_ORIGINS });
 
-  httpServer.listen(3000, () => {
-    console.log('Server booted on 3000')
-  });
-});
+    const onlineUsers = {};
+
+    const createUser = (socket) => {
+      const userId = socket.handshake.query.userId;
+      const user = {
+        userId,
+        name: socket.handshake.query.name,
+        socketId: socket.id,
+      };
+      onlineUsers[userId] = user;
+      return user;
+    };
+
+    const onConnection = (socket) => {
+      // Store the current in memory!
+      createUser(socket);
+
+      // Send connected users to client side
+      io.emit("online-users", Object.values(onlineUsers));
+
+      roomsHandler(io, socket, { onlineUsers });
+      messagesHandler(io, socket, { onlineUsers });
+
+      socket.on("disconnect", (reason) => {});
+    };
+
+    io.on("connection", onConnection);
+
+    httpServer.listen(env.PORT, () => {
+      console.log("Server booted on " + env.PORT);
+    });
+  })
+  .catch((error) => console.log(error.message));
